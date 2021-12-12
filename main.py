@@ -1,5 +1,4 @@
 # pip install Sublist3r
-# pip install pycountry
 
 import sublist3r
 import socket
@@ -7,8 +6,8 @@ import logging
 from time import time
 import requests
 import statistics
+import threading
 
-scan_threads = 30
 scan_port_list = [21, 22, 23, 53, 80, 443, *range(8000, 8010)]
 tries_for_latency_check = 5
 connect_timeout = 2
@@ -39,21 +38,18 @@ def measure_tcp_connect_latency_ms(host: str, port: int = 443, timeout: int = 5)
     return float(s_runtime)
 
 
-if __name__ == '__main__':
-    subdomains = sublist3r.main("exness.com",
-                                threads=scan_threads,
-                                savefile=None,
-                                ports=None,
-                                silent=True,
-                                verbose=False,
-                                enable_bruteforce=False,
-                                engines=None)
-    for domain in subdomains:
-        print(f"\nDomain: {domain}")
+class MultiScan:
+    def __init__(self, subdomains):
+        self.subdomains = subdomains
+        self.lock = None
+
+    def subdomain_scan(self, domain):
+        response_text = ''
+        response_text += f"\nDomain: {domain}"
         try:
             domain_ips = socket.gethostbyname_ex(domain)[2]
             for ip in domain_ips:
-                print(f"\tIP address: {ip}")
+                response_text += f"\n\tIP address: {ip}"
                 tcp_latencies = []
                 errors = 0
                 opened_ports = []
@@ -71,14 +67,35 @@ if __name__ == '__main__':
                                     tcp_latencies.append(tcp_latency)
                 country = get_country(ip)
                 if country:
-                    print(f"\t\tCountry: {country}")
+                    response_text += f"\n\t\tCountry: {country}"
                 if len(tcp_latencies):
-                    print(f"\t\tTCP connection to {ip} min/max/mean : {round(min(tcp_latencies),2)}/"
-                          f"{round(max(tcp_latencies),2)}/"
-                          f"{round(statistics.mean(tcp_latencies),2)} ms. "
-                          f"Sent {(len(tcp_latencies)+errors)}, "
-                          f"received {len(tcp_latencies)} "
-                          f"({float(errors)*100/(len(tcp_latencies)+errors)}% errors)")
-                    print(f"\t\tOpen tcp ports: {', '.join(map(str, opened_ports))}")
+                    response_text += f"\n\t\tTCP connection to {ip} min/max/mean : {round(min(tcp_latencies),2)}/" \
+                          f"{round(max(tcp_latencies),2)}/" \
+                          f"{round(statistics.mean(tcp_latencies),2)} ms. " \
+                          f"Sent {(len(tcp_latencies)+errors)}, " \
+                          f"received {len(tcp_latencies)} " \
+                          f"({float(errors)*100/(len(tcp_latencies)+errors)}% errors)"
+                    response_text += f"\n\t\tOpen tcp ports: {', '.join(map(str, opened_ports))}"
         except socket.gaierror:
             logging.log(logging.WARNING, f"Unable to resolve {domain}")
+        print(response_text)
+
+    def run(self):
+        self.lock = threading.BoundedSemaphore(value=scan_threads)
+        for subdomain in self.subdomains:
+            t = threading.Thread(target=self.subdomain_scan, args=(subdomain,))
+            t.start()
+
+
+scan_threads = 30
+if __name__ == '__main__':
+    subdomains = sublist3r.main("exness.com",
+                                threads=scan_threads,
+                                savefile=None,
+                                ports=None,
+                                silent=True,
+                                verbose=False,
+                                enable_bruteforce=False,
+                                engines=None)
+    scanner = MultiScan(subdomains)
+    scanner.run()
