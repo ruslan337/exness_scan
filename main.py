@@ -77,7 +77,8 @@ class MultiScan:
                           f"({float(errors)*100/(len(tcp_latencies)+errors)}% errors)"
                     response_text += f"\n\t\tOpen tcp ports: {', '.join(map(str, opened_ports))}"
         except socket.gaierror:
-            logging.log(logging.WARNING, f"Unable to resolve {domain}")
+            # logging.log(logging.WARNING, f"Unable to resolve {domain}")
+            pass
         print(response_text)
 
     def run(self):
